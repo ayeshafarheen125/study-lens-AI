@@ -1,17 +1,14 @@
 import os
 import json
 from typing import Any, Dict, Optional
-
+from dotenv import load_dotenv
 from groq import Groq
+
+load_dotenv()
 
 
 class GroqLLM:
-    """
-    Shared Groq client used by the Tutor Agent and Question Agent.
-
-    One Groq API key can be shared by multiple specialized agents.
-    """
-
+   
     def __init__(
         self,
         api_key: Optional[str] = None,
