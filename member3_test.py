@@ -1,15 +1,13 @@
 """
 Standalone integration test for Member 3.
 
-This test demonstrates the exact handoff:
+This test demonstrates the Member 2 → Member 3 workflow.
 
 Member 2 Document Agent
         ↓
 Member 3 Tutor Agent
         +
 Member 3 Question Agent
-        ↓
-Structured result for Member 4
 
 Usage:
     python member3_test.py path/to/file.pdf

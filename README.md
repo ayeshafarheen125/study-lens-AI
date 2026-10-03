@@ -1,124 +1,69 @@
-# StudyLens AI — Member 3
+# StudyLens AI — Member 3 (Groq + Streamlit)
 
-## Role
+Member 3 contains two specialized agents:
 
-Member 3 is responsible for two specialized agents:
+- **Tutor Agent:** summary, key points, easy explanations, difficult terms.
+- **Question Agent:** MCQs, short questions, long questions, and True/False.
 
-1. **Tutor/Understanding Agent**
-   - Summary
-   - Key points
-   - Easy explanations
-   - Difficult terms
+## Interactive workflow
 
-2. **Question Agent**
-   - MCQs
-   - Short questions
-   - Long questions
-   - True/False
+After uploading a PDF, the user chooses:
 
-The agents use the same Groq API client but have separate responsibilities and separate prompts.
+1. **Tutoring** — runs the Tutor Agent and displays the learning material.
+2. **Take a Quiz** — runs the Question Agent and gives an interactive quiz.
 
-## Architecture
+In Quiz mode:
 
-```text
-PDF
- ↓
-Member 2 — DocumentProcessingAgent
- ↓
-clean processed text
- ↓
-Member 3 — Tutor Agent
- ↓
-learning content
+- The user selects answers instead of seeing the answers immediately.
+- MCQs and True/False questions are automatically checked after submission.
+- The app shows the user's answer, correct answer, and why.
+- A final score and percentage are displayed.
+- Short and long questions are available as written practice and are not included in the automatic score.
 
-same processed text
- ↓
-Member 3 — Question Agent
- ↓
-structured questions
- ↓
-Member 4 — Quiz Agent
-```
+There is no Member 4 handoff/download section in this standalone Member 3 app. The generated agent files can be shared separately with the rest of the team.
 
 ## Files
 
-- `document_agent.py` — Member 2's document-processing component
-- `llm_client.py` — shared Groq client
-- `tutor_agent.py` — Member 3 Tutor Agent
-- `question_agent.py` — Member 3 Question Agent
-- `member3_service.py` — clean interface for the Orchestrator
-- `member3_test.py` — command-line integration test
-- `app.py` — standalone Streamlit demo/deployment app
-- `requirements.txt` — dependencies
-- `.env.example` — local environment-variable template
-
-## Local setup
-
-### 1. Create a virtual environment
-
-Windows:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
+```text
+app.py
+document_agent.py
+llm_client.py
+tutor_agent.py
+question_agent.py
+member3_service.py
+member3_test.py
+requirements.txt
+.env.example
+.gitignore
+README.md
 ```
 
-### 2. Install packages
+## Local setup
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Add your Groq API key
-
-For local development, create `.env`:
+Create `.env` from `.env.example`:
 
 ```env
 GROQ_API_KEY=your_real_groq_key
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=openai/gpt-oss-120b
 ```
 
-The code can also receive the key from the environment.
-
-### 4. Run the Streamlit app
+Then run:
 
 ```bash
 streamlit run app.py
 ```
 
-## Test from the command line
+## Streamlit Community Cloud
 
-```bash
-python member3_test.py "your_file.pdf"
-```
-
-## Team integration
-
-Member 1 can import:
-
-```python
-from member3_service import Member3Service
-
-member3 = Member3Service()
-
-result = member3.run(document_result["full_text"])
-```
-
-Then pass:
-
-```python
-result["questions"]
-```
-
-to Member 4's Quiz Agent.
-
-## Important
-
-Do not commit `.env` or your real Groq API key to GitHub.
-
-For Streamlit deployment, put the key in the app's Secrets settings:
+In **App settings → Secrets**, add:
 
 ```toml
 GROQ_API_KEY = "your_real_groq_key"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 ```
+
+Never commit the real `.env` file or API key to GitHub.

@@ -1,6 +1,7 @@
-import os
 import json
+import os
 from typing import Any, Dict, Optional
+
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -8,7 +9,12 @@ load_dotenv()
 
 
 class GroqLLM:
-   
+    """
+    Shared Groq client used by the Tutor Agent and Question Agent.
+
+    One Groq API key can be shared by multiple specialized agents.
+    """
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -18,7 +24,7 @@ class GroqLLM:
         self.api_key = api_key or os.getenv("GROQ_API_KEY")
         self.model = model or os.getenv(
             "GROQ_MODEL",
-            "llama-3.3-70b-versatile"
+            "openai/gpt-oss-120b",
         )
         self.temperature = temperature
 

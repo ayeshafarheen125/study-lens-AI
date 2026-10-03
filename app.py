@@ -1,4 +1,3 @@
-import json
 import os
 import tempfile
 
@@ -18,9 +17,8 @@ st.title("📚 StudyLens AI")
 st.caption("Member 3 — Tutor/Understanding Agent + Question Agent")
 
 st.info(
-    "Upload study material to test the Member 2 → Member 3 workflow. "
-    "Member 2 processes the PDF, then your two specialized agents "
-    "generate learning content and questions."
+    "Upload your study material, then choose whether you want tutoring "
+    "or an interactive quiz."
 )
 
 with st.sidebar:
@@ -28,7 +26,7 @@ with st.sidebar:
 
     model = st.text_input(
         "Groq Model",
-        value=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        value=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
     )
 
     temperature = st.slider(
@@ -72,123 +70,320 @@ if uploaded_file:
         st.error("Chunk overlap must be smaller than chunk size.")
         st.stop()
 
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".pdf"
-    ) as tmp:
+    # Store results so Streamlit reruns do not call Groq repeatedly.
+    if "member3_result" not in st.session_state:
+        st.session_state.member3_result = None
+    if "processed_content" not in st.session_state:
+        st.session_state.processed_content = None
+    if "document_result" not in st.session_state:
+        st.session_state.document_result = None
+    if "uploaded_file_name" not in st.session_state:
+        st.session_state.uploaded_file_name = None
+    if "quiz_submitted" not in st.session_state:
+        st.session_state.quiz_submitted = False
+
+    # Reset the previous result when a different PDF is uploaded.
+    if st.session_state.uploaded_file_name != uploaded_file.name:
+        st.session_state.member3_result = None
+        st.session_state.processed_content = None
+        st.session_state.document_result = None
+        st.session_state.uploaded_file_name = uploaded_file.name
+        st.session_state.quiz_submitted = False
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(uploaded_file.getvalue())
         pdf_path = tmp.name
 
     try:
-        with st.spinner("Member 2: processing the PDF..."):
-            document_agent = DocumentProcessingAgent(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-            )
-            document_result = document_agent.process_document(pdf_path)
+        # ---------------------------------------------------------------
+        # MEMBER 2 — DOCUMENT PROCESSING
+        # ---------------------------------------------------------------
+        if st.session_state.processed_content is None:
+            with st.spinner("Member 2: processing the PDF..."):
+                document_agent = DocumentProcessingAgent(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+                document_result = document_agent.process_document(pdf_path)
 
-        if document_result["status"] != "success":
-            st.error(document_result.get("message", "Document processing failed."))
-            st.stop()
+            if document_result["status"] != "success":
+                st.error(
+                    document_result.get(
+                        "message", "Document processing failed."
+                    )
+                )
+                st.stop()
+
+            st.session_state.processed_content = document_result["full_text"]
+            st.session_state.document_result = document_result
+        else:
+            document_result = st.session_state.document_result
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Pages", document_result["total_pages"])
         c2.metric("Characters", f"{document_result['total_characters']:,}")
         c3.metric("Chunks", document_result["total_chunks"])
 
-        st.success("Member 2 completed. Passing processed content to Member 3.")
+        st.success(
+            "Member 2 completed. Processed content is ready for Member 3."
+        )
 
         with st.expander("View processed text"):
             st.text_area(
                 "Processed study material",
-                document_result["full_text"],
+                st.session_state.processed_content,
                 height=300,
             )
 
-        with st.spinner("Member 3: Tutor Agent + Question Agent working..."):
-            service = Member3Service(
-                model=model,
-                temperature=temperature,
-            )
-            result = service.run(document_result["full_text"])
-
-        if result["status"] != "success":
-            st.error(
-                f"Member 3 failed at {result.get('stage', 'unknown stage')}: "
-                f"{result.get(result.get('stage', ''), {}).get('message', 'Unknown error')}"
-            )
-            st.stop()
-
-        tutor = result["tutor"]
-        questions = result["questions"]
-
         st.divider()
-        st.header("👨‍🏫 Tutor Agent")
 
-        st.subheader("Summary")
-        st.write(tutor["summary"])
+        # ---------------------------------------------------------------
+        # USER CHOICE
+        # ---------------------------------------------------------------
+        st.header("🎯 What would you like to do?")
 
-        st.subheader("🔑 Key Points")
-        for point in tutor["key_points"]:
-            st.markdown(f"- {point}")
-
-        st.subheader("💡 Easy Explanations")
-        for item in tutor["explanations"]:
-            with st.expander(item["concept"]):
-                st.write(item["explanation"])
-
-        st.subheader("📖 Difficult Terms")
-        for item in tutor["difficult_terms"]:
-            st.markdown(f"**{item['term']}** — {item['meaning']}")
-
-        st.divider()
-        st.header("❓ Question Agent")
-
-        tab1, tab2, tab3, tab4 = st.tabs(
-            ["MCQs", "Short Questions", "Long Questions", "True/False"]
+        choice = st.radio(
+            "Choose one option:",
+            ["👨‍🏫 Tutoring", "📝 Take a Quiz"],
+            horizontal=True,
         )
 
-        with tab1:
-            for i, q in enumerate(questions["mcqs"], 1):
-                st.markdown(f"**MCQ {i}. {q['question']}**")
-                for option in q["options"]:
-                    st.markdown(f"- {option}")
-                st.success(f"Answer: {q['correct_answer']}")
-                st.caption(q["explanation"])
+        # ---------------------------------------------------------------
+        # TUTORING MODE
+        # ---------------------------------------------------------------
+        if choice == "👨‍🏫 Tutoring":
+            st.session_state.quiz_submitted = False
 
-        with tab2:
-            for i, q in enumerate(questions["short_questions"], 1):
-                st.markdown(f"**{i}. {q['question']}**")
-                st.write(f"Answer: {q['answer']}")
+            if st.button("Start Tutoring", type="primary"):
+                with st.spinner("Tutor Agent is preparing your lesson..."):
+                    service = Member3Service(
+                        model=model,
+                        temperature=temperature,
+                    )
+                    tutor_result = service.tutor_agent.process(
+                        st.session_state.processed_content
+                    )
 
-        with tab3:
-            for i, q in enumerate(questions["long_questions"], 1):
-                st.markdown(f"**{i}. {q['question']}**")
-                st.write(f"Answer: {q['answer']}")
+                if tutor_result.get("status") != "success":
+                    st.error(
+                        "Tutor Agent failed: "
+                        + tutor_result.get("message", "Unknown error")
+                    )
+                else:
+                    st.session_state.member3_result = {
+                        "mode": "tutoring",
+                        "tutor": tutor_result,
+                    }
 
-        with tab4:
-            for i, q in enumerate(questions["true_false"], 1):
-                answer = "True" if q["answer"] else "False"
-                st.markdown(f"**{i}. {q['statement']}**")
-                st.write(f"Answer: {answer}")
-                st.caption(q["explanation"])
+            result = st.session_state.member3_result
 
-        st.divider()
-        st.subheader("🔗 Handoff to Member 4 — Quiz Agent")
+            if result and result.get("mode") == "tutoring":
+                tutor = result["tutor"]
 
-        quiz_payload = {
-            "status": "success",
-            "questions": questions,
-        }
+                st.success("Tutor Agent completed the lesson.")
 
-        st.json(quiz_payload)
+                st.subheader("📌 Summary")
+                st.write(tutor["summary"])
 
-        st.download_button(
-            "💾 Download Question Payload",
-            data=json.dumps(quiz_payload, indent=2, ensure_ascii=False),
-            file_name="member3_question_payload.json",
-            mime="application/json",
-        )
+                st.subheader("🔑 Key Points")
+                for point in tutor["key_points"]:
+                    st.markdown(f"- {point}")
+
+                st.subheader("💡 Easy Explanations")
+                for item in tutor["explanations"]:
+                    with st.expander(item["concept"]):
+                        st.write(item["explanation"])
+
+                st.subheader("📖 Difficult Terms")
+                for item in tutor["difficult_terms"]:
+                    st.markdown(
+                        f"**{item['term']}** — {item['meaning']}"
+                    )
+
+        # ---------------------------------------------------------------
+        # QUIZ MODE
+        # ---------------------------------------------------------------
+        else:
+            if st.button("Generate Quiz", type="primary"):
+                with st.spinner("Question Agent is creating your quiz..."):
+                    service = Member3Service(
+                        model=model,
+                        temperature=temperature,
+                    )
+                    question_result = service.question_agent.generate(
+                        st.session_state.processed_content
+                    )
+
+                if question_result.get("status") != "success":
+                    st.error(
+                        "Question Agent failed: "
+                        + question_result.get("message", "Unknown error")
+                    )
+                else:
+                    st.session_state.member3_result = {
+                        "mode": "quiz",
+                        "questions": question_result,
+                    }
+                    st.session_state.quiz_submitted = False
+
+            result = st.session_state.member3_result
+
+            if result and result.get("mode") == "quiz":
+                questions = result["questions"]
+                mcqs = questions.get("mcqs", [])
+                true_false = questions.get("true_false", [])
+
+                if not mcqs and not true_false:
+                    st.warning("The Question Agent did not generate quiz questions.")
+                    st.stop()
+
+                st.success(
+                    "Quiz ready! Choose your answers first. "
+                    "Your score and explanations will appear after submission."
+                )
+
+                st.subheader("📝 Interactive Quiz")
+
+                question_number = 0
+
+                # ------------------------- MCQs -------------------------
+                for i, q in enumerate(mcqs):
+                    question_number += 1
+                    st.markdown(
+                        f"### Question {question_number}\n{q['question']}"
+                    )
+
+                    options = q.get("options", [])
+                    st.radio(
+                        "Select your answer:",
+                        options,
+                        key=f"mcq_answer_{i}",
+                        index=None,
+                    )
+
+                # ---------------------- True/False ----------------------
+                for i, q in enumerate(true_false):
+                    question_number += 1
+                    st.markdown(
+                        f"### Question {question_number}\n{q['statement']}"
+                    )
+
+                    st.radio(
+                        "Select your answer:",
+                        ["True", "False"],
+                        key=f"tf_answer_{i}",
+                        index=None,
+                    )
+
+                st.divider()
+
+                if st.button("✅ Submit Quiz", type="primary"):
+                    st.session_state.quiz_submitted = True
+
+                if st.session_state.quiz_submitted:
+                    score = 0
+                    total = len(mcqs) + len(true_false)
+
+                    st.subheader("📊 Your Result")
+
+                    # Check MCQs
+                    for i, q in enumerate(mcqs):
+                        selected = st.session_state.get(
+                            f"mcq_answer_{i}"
+                        )
+                        correct = q["correct_answer"]
+
+                        if selected == correct:
+                            score += 1
+                            st.success(
+                                f"Question {i + 1}: Correct ✓\n\n"
+                                f"Why: {q.get('explanation', 'The selected answer matches the answer generated from the study material.')}"
+                            )
+                        else:
+                            if selected is None:
+                                selected_text = "No answer selected"
+                            else:
+                                selected_text = selected
+
+                            st.error(
+                                f"Question {i + 1}: Incorrect ✗\n\n"
+                                f"Your answer: {selected_text}\n\n"
+                                f"Correct answer: {correct}\n\n"
+                                f"Why: {q.get('explanation', 'The correct answer is supported by the uploaded study material.')}"
+                            )
+
+                    # Check True/False
+                    offset = len(mcqs)
+                    for i, q in enumerate(true_false):
+                        selected = st.session_state.get(
+                            f"tf_answer_{i}"
+                        )
+
+                        correct_bool = bool(q["answer"])
+                        correct_text = "True" if correct_bool else "False"
+
+                        if selected == correct_text:
+                            score += 1
+                            st.success(
+                                f"Question {offset + i + 1}: Correct ✓\n\n"
+                                f"Why: {q.get('explanation', 'This answer is supported by the uploaded study material.')}"
+                            )
+                        else:
+                            if selected is None:
+                                selected_text = "No answer selected"
+                            else:
+                                selected_text = selected
+
+                            st.error(
+                                f"Question {offset + i + 1}: Incorrect ✗\n\n"
+                                f"Your answer: {selected_text}\n\n"
+                                f"Correct answer: {correct_text}\n\n"
+                                f"Why: {q.get('explanation', 'The correct answer is supported by the uploaded study material.')}"
+                            )
+
+                    percentage = (score / total * 100) if total else 0
+
+                    st.divider()
+                    st.metric(
+                        "Final Score",
+                        f"{score}/{total}",
+                        f"{percentage:.0f}%",
+                    )
+
+                    st.info(
+                        "The quiz checks your selected answers against the "
+                        "answers generated from the uploaded study material."
+                    )
+
+                # Optional written practice after the interactive quiz.
+                short_questions = questions.get("short_questions", [])
+                long_questions = questions.get("long_questions", [])
+
+                if short_questions or long_questions:
+                    st.divider()
+                    with st.expander("📚 Written Practice Questions"):
+                        st.caption(
+                            "These questions are provided for practice. "
+                            "They are not part of the automatic score."
+                        )
+
+                        for i, q in enumerate(short_questions, 1):
+                            st.markdown(
+                                f"**Short Question {i}: {q['question']}**"
+                            )
+                            st.write(
+                                "Suggested answer: "
+                                + q.get("answer", "")
+                            )
+
+                        for i, q in enumerate(long_questions, 1):
+                            st.markdown(
+                                f"**Long Question {i}: {q['question']}**"
+                            )
+                            st.write(
+                                "Suggested answer: "
+                                + q.get("answer", "")
+                            )
 
     finally:
         if os.path.exists(pdf_path):
